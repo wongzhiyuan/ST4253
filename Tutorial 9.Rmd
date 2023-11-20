@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(fpp3)
 library(tidyverse)
+library(imputeTS)
 ```
 
 ```{r - Utility fxns} 
@@ -120,6 +121,14 @@ arima_forecast_framework <- function(datasets, order, ar, ma, h) {
 }
 
 ```
+```{r}
+forecast_ts<-modified_ts
+ma_impute <- function(data) {
+  imputed_data <- na_ma(data)
+  
+  return(imputed_data)
+}
+```
 
 ```{r}
 # Load necessary libraries
@@ -134,15 +143,51 @@ ma_param <- 0.7  # MA parameter
 sd_noise <- 1  # Standard deviation of noise
 
 arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
+```
 
+```{r}
+drop_observations_seasonally <- function(ts, fraction, seasonality) {
+  n <- length(ts)
+  period <- length(time(ts)) / seasonality
+  
+  # Determine indices to drop seasonally
+  indices_to_drop <- rep(1:seasonality, each = round(fraction * period))
+  indices_to_drop <- sort(rep(indices_to_drop, length.out = n))
+  
+  ts[indices_to_drop] <- NA
+  return(ts)
+}
+
+```
+
+
+```{r}
 # 2. Introduce Missing Observations
 fraction_missing <- 0.1  # Fraction of data to be dropped
 modified_ts <- drop_observations(arima_ts, fraction_missing)
+seasonally_modified_ts<-drop_observations(arima_ts, fraction_missing,'seasonal',4)
+chunked_modified_ts<-drop_observations(arima_ts, fraction_missing,'chunked')
+```
 
+
+```{r}
+# 3. Impute Missing Data
+ma_ts<-ma_impute(modified_ts)
+
+na_seasplit(modified_ts,algorithm ='ma')
+na_seadec(modified_ts,algorithm ='ma')
+
+```
+
+```{r}
 # 3. Impute Missing Data
 mean_value <- mean(modified_ts$value, na.rm = TRUE)
 modified_ts$value[is.na(modified_ts$value)] <- mean_value
+```
 
+
+
+```{r}
 # 4. Estimate ARIMA Parameters on the Modified Data
 estimated_params <- estimate_arima_params(modified_ts$value)
 
