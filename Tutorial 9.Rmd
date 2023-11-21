@@ -166,7 +166,7 @@ ma_param <- 0.7  # MA parameter
 sd_noise <- 1  # Standard deviation of noise
 
 arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
-arima_ts_test <- arima_ts[80:100,]
+arima_ts_test <- arima_ts[81:100,]
 arima_ts_train <- arima_ts[1:80,]
 ```
 
