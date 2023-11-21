@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(fpp3)
 library(tidyverse)
+library(imputeTS)
 ```
 
 ```{r - Utility fxns} 
@@ -143,6 +144,14 @@ arima_forecast_framework <- function(datasets, order, ar, ma, h) {
 }
 
 ```
+```{r}
+forecast_ts<-modified_ts
+ma_impute <- function(data) {
+  imputed_data <- na_ma(data)
+  
+  return(imputed_data)
+}
+```
 
 ```{r}
 # Load necessary libraries
@@ -157,15 +166,90 @@ ma_param <- 0.7  # MA parameter
 sd_noise <- 1  # Standard deviation of noise
 
 arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
+arima_ts_test <- arima_ts[80:100,]
+arima_ts_train <- arima_ts[1:80,]
+```
 
+```{r}
+drop_observations_seasonally <- function(ts, fraction, seasonality) {
+  n <- length(ts)
+  period <- length(time(ts)) / seasonality
+  
+  # Determine indices to drop seasonally
+  indices_to_drop <- rep(1:seasonality, each = round(fraction * period))
+  indices_to_drop <- sort(rep(indices_to_drop, length.out = n))
+  
+  ts[indices_to_drop] <- NA
+  return(ts)
+}
+
+```
+
+
+```{r}
 # 2. Introduce Missing Observations
 fraction_missing <- 0.1  # Fraction of data to be dropped
-modified_ts <- drop_observations(arima_ts, fraction_missing)
+modified_ts <- drop_observations(arima_ts_train, fraction_missing)
+seasonally_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'seasonal',4)
+chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
+```
 
+
+```{r}
+# 3. Impute Missing Data# 3. Impute Missing Data
+# Imputing by weighted moving average, LOCF, NOCB
+ma_ts<- ma_impute(modified_ts)
+
+locf_ts <- modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value), value))
+
+nocb_ts <- modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value, option = "nocb"), value))
+
+# Impute seasonally modified ts with weighted moving average, LOCF, NOCB
+ma_seas_ts <- ma_impute(seasonally_modified_ts)
+
+locf_seas_ts <- seasonally_modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value), value))
+
+nocb_seas_ts <- seasonally_modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value, option = "nocb"), value))
+
+# Impute chunked modified ts with WMA, LOCF, NOCB
+ma_chunked_ts <- ma_impute(chunked_modified_ts)
+
+locf_chunked_ts <- chunked_modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value), value))
+
+nocb_chunked_ts <- chunked_modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value, option = "nocb"), value))
+
+
+# After splitting time series into seasons, perform imputation using MA, LOCF, NOCB
+na_seasplit(modified_ts,algorithm ='ma')
+#na_seasplit(modified_ts,algorithm = "locf")
+
+# After removing seasonal component, perform imputation using MA
+na_seadec(modified_ts,algorithm ='ma')
+#na_seadec(modified_ts,algorithm = "locf")
+
+```
+
+```{r}
 # 3. Impute Missing Data
 mean_value <- mean(modified_ts$value, na.rm = TRUE)
 modified_ts$value[is.na(modified_ts$value)] <- mean_value
+```
 
+
+
+```{r}
 # 4. Estimate ARIMA Parameters on the Modified Data
 estimated_params <- estimate_arima_params(modified_ts$value)
 
