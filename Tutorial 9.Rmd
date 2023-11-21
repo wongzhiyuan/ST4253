@@ -78,6 +78,29 @@ drop_observations <- function(ts_data, fraction, mode = "random", period = NULL)
 }
 ```
 
+```{r interpolation}
+library(zoo)
+
+interpolation <- function(ts_data){
+  # ts_data: Time series data with missing values 
+  # Returns: Time series data without missing values 
+  
+  # Convert tsibble to zoo object
+  zoo_data <- zoo(tsibble_data$value, order.by = tsibble_data$index)
+
+  # Perform linear interpolation
+  interpolated_data <- na.approx(zoo_data)
+
+  # Convert back to tsibble
+  tsibble_data_filled <- as_tsibble(interpolated_data, key = tsibble_data$key)
+
+  return(tsibble_data_filled)
+  
+}
+```
+
+
+
 ```{r}
 estimate_arima_params <- function(ts_data) {
   auto_fit <- auto.arima(ts_data)
