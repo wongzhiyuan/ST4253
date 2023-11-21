@@ -171,11 +171,48 @@ chunked_modified_ts<-drop_observations(arima_ts, fraction_missing,'chunked')
 
 
 ```{r}
-# 3. Impute Missing Data
-ma_ts<-ma_impute(modified_ts)
+# 3. Impute Missing Data# 3. Impute Missing Data
+# Imputing by weighted moving average, LOCF, NOCB
+ma_ts<- ma_impute(modified_ts)
 
+locf_ts <- modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value), value))
+
+nocb_ts <- modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value, option = "nocb"), value))
+
+# Impute seasonally modified ts with weighted moving average, LOCF, NOCB
+ma_seas_ts <- ma_impute(seasonally_modified_ts)
+
+locf_seas_ts <- seasonally_modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value), value))
+
+nocb_seas_ts <- seasonally_modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value, option = "nocb"), value))
+
+# Impute chunked modified ts with WMA, LOCF, NOCB
+ma_chunked_ts <- ma_impute(chunked_modified_ts)
+
+locf_chunked_ts <- chunked_modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value), value))
+
+nocb_chunked_ts <- chunked_modified_ts %>%
+  mutate(value_locf = ifelse(is.na(value),
+  na_locf(value, option = "nocb"), value))
+
+
+# After splitting time series into seasons, perform imputation using MA, LOCF, NOCB
 na_seasplit(modified_ts,algorithm ='ma')
+#na_seasplit(modified_ts,algorithm = "locf")
+
+# After removing seasonal component, perform imputation using MA
 na_seadec(modified_ts,algorithm ='ma')
+#na_seadec(modified_ts,algorithm = "locf")
 
 ```
 
