@@ -143,6 +143,8 @@ ma_param <- 0.7  # MA parameter
 sd_noise <- 1  # Standard deviation of noise
 
 arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
+arima_ts_test <- arima_ts[80:100,]
+arima_ts_train <- arima_ts[1:80,]
 ```
 
 ```{r}
@@ -164,9 +166,9 @@ drop_observations_seasonally <- function(ts, fraction, seasonality) {
 ```{r}
 # 2. Introduce Missing Observations
 fraction_missing <- 0.1  # Fraction of data to be dropped
-modified_ts <- drop_observations(arima_ts, fraction_missing)
-seasonally_modified_ts<-drop_observations(arima_ts, fraction_missing,'seasonal',4)
-chunked_modified_ts<-drop_observations(arima_ts, fraction_missing,'chunked')
+modified_ts <- drop_observations(arima_ts_train, fraction_missing)
+seasonally_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'seasonal',4)
+chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
 ```
 
 
