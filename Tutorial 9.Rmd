@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # Load necessary libraries
 library(fpp3)
 library(tidyverse)
+install.packages('imputeTS')
 library(imputeTS)
 library(zoo)
 library(forecast)
@@ -126,12 +127,18 @@ arima_forecast_framework <- function(datasets, order, ar, ma, h) {
 ```
 
 ```{r interpolation}
-interpolation <- function(ts_data) {
+interpolation <- function(ts_data, method = c("linear", "cubic")) {
   # Convert tsibble to zoo object
   zoo_data <- zoo(ts_data$value, order.by = ts_data$index)
-
-  # Perform linear interpolation
-  interpolated_values <- na.approx(zoo_data)
+  
+  # Perform interpolation based on the specified method
+  if (method == "linear") {
+    interpolated_values <- na.approx(zoo_data)
+  } else if (method == "cubic") {
+    interpolated_values <- na.spline(zoo_data)
+  } else {
+    stop("Invalid interpolation method. Supported methods: 'linear', 'cubic'")
+  }
 
   # Extract values and index from zoo object
   interpolated_data <- data.frame(index = index(interpolated_values), value = coredata(interpolated_values))
@@ -141,7 +148,6 @@ interpolation <- function(ts_data) {
 
   return(tsibble_data_filled)
 }
-
 ```
 
 ```{r}
