@@ -176,16 +176,14 @@ sd_noise <- 1  # Standard deviation of noise
 ```{r}
 # 1. Generate an ARIMA Time Series
 arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
-arima_ts_test <- arima_ts[81:100,]
-arima_ts_train <- arima_ts[1:80,]
 ```
 
 ```{r}
 # 2. Introduce Missing Observations
 fraction_missing <- 0.1  # Fraction of data to be dropped
-modified_ts <- drop_observations(arima_ts_train, fraction_missing)
-seasonally_modified_ts<-drop_observations(arima_ts_train, fraction_missing/12,'seasonal',4)
-chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
+modified_ts <- drop_observations(arima_ts, fraction_missing)
+seasonally_modified_ts<-drop_observations(arima_ts, fraction_missing/12,'seasonal',4)
+chunked_modified_ts<-drop_observations(arima_ts, fraction_missing,'chunked')
 ```
 
 ```{r}
@@ -194,33 +192,33 @@ chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked
 ma_ts<- ma_impute(modified_ts)
 
 locf_ts <- modified_ts %>%
-  mutate(value_locf = ifelse(is.na(value),
+  mutate(value = ifelse(is.na(value),
   na_locf(value), value))
 
 nocb_ts <- modified_ts %>%
-  mutate(value_locf = ifelse(is.na(value),
+  mutate(value = ifelse(is.na(value),
   na_locf(value, option = "nocb"), value))
 
 # Impute seasonally modified ts with weighted moving average, LOCF, NOCB
 ma_seas_ts <- na_ma(seasonally_modified_ts)
 
 locf_seas_ts <- seasonally_modified_ts %>%
-  mutate(value_locf = ifelse(is.na(value),
+  mutate(value = ifelse(is.na(value),
   na_locf(value), value))
 
 nocb_seas_ts <- seasonally_modified_ts %>%
-  mutate(value_locf = ifelse(is.na(value),
+  mutate(value = ifelse(is.na(value),
   na_locf(value, option = "nocb"), value))
 
 # Impute chunked modified ts with WMA, LOCF, NOCB
 ma_chunked_ts <- ma_impute(chunked_modified_ts)
 
 locf_chunked_ts <- chunked_modified_ts %>%
-  mutate(value_locf = ifelse(is.na(value),
+  mutate(value = ifelse(is.na(value),
   na_locf(value), value))
 
 nocb_chunked_ts <- chunked_modified_ts %>%
-  mutate(value_locf = ifelse(is.na(value),
+  mutate(value = ifelse(is.na(value),
   na_locf(value, option = "nocb"), value))
 
 
