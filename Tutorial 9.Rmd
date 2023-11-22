@@ -13,7 +13,6 @@ knitr::opts_chunk$set(echo = TRUE)
 # Load necessary libraries
 library(fpp3)
 library(tidyverse)
-install.packages('imputeTS')
 library(imputeTS)
 library(zoo)
 library(forecast)
@@ -264,8 +263,6 @@ generate_multiple<- function(impute_func){
   ma_param <- 0.7  # MA parameter
   sd_noise <- 1  # Standard deviation of noise
   reps<-5
-  error<-rep(0,reps);
-  print(error)
   for (i in (1:reps)){
     arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
     arima_ts_test <- arima_ts[81:100,]
@@ -277,18 +274,18 @@ generate_multiple<- function(impute_func){
     ma_chunked_ts <- na_ma(chunked_modified_ts)
     estimated_params <- estimate_arima_params(modified_ts$value)
     modified_ts<-impute_func(modified_ts)
-    forecast_horizon <- 20 
-    datasets <- list(arima_ts, modified_ts) 
-    
-      forecast_results <- arima_forecast_framework(datasets, order, ar_param, ma_param, forecast_horizon)
-    
-    error[i]<-calculate_mse_fc(forecast_results)
+    datasets[i] <- list(arima_ts, modified_ts) 
   }
-  return(error)
+  return(datasets)
 }
 ```
 ```{r}
-generate_multiple(na_ma)
+datasets<-generate_multiple(na_ma)
+forecast_results <- arima_forecast_framework(datasets, order, ar_param, ma_param, forecast_horizon)
+
+# Display the results
+print(forecast_results)
+calculate_mse_fc(forecast_results)
 ```
 
 
