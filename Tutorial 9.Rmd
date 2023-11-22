@@ -141,10 +141,10 @@ interpolation <- function(ts_data, method = c("linear", "cubic")) {
   }
 
   # Extract values and index from zoo object
-  interpolated_data <- data.frame(index = index(interpolated_values), value = coredata(interpolated_values))
+  interpolated_data <- data.frame(interpolated_values)
 
   # Convert back to tsibble manually
-  tsibble_data_filled <- tsibble(index = interpolated_data$index, value = interpolated_data$value)
+  tsibble_data_filled <- as_tsibble(index = 1:length(interpolated_data), interpolated_data)
 
   return(tsibble_data_filled)
 }
