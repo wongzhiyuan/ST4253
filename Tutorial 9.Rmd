@@ -288,4 +288,58 @@ print(forecast_results)
 calculate_mse_fc(forecast_results)
 ```
 
+```{r}
+df_generator_helper <- function(option){
+  n <- 100
+  ar_param <- 0.5
+  ma_param <- 0.7
+  sd_noise <- 1
+  order <- c(1,1,1)
+  arima_ts <- generate_arima_tsibble(n,order,ar_param,ma_param,sd_noise)
+  arima_ts_test <- arima_ts[81:100,]
+  arima_ts_train <- arima_ts[1:80,]
+  fraction_missing <- 0.1  # Fraction of data to be dropped
+  modified_ts <- drop_observations(arima_ts_train, fraction_missing)
+  seasonally_modified_ts<-drop_observations(arima_ts_train,
+                                            fraction_missing/12,'seasonal',4)
+  chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
+  adjusted_ts <- modified_ts %>%
+    mutate(value = ifelse(is.na(value),
+    na_locf(value, option = option), value))
+  
+  adjusted_seas_ts <- seasonally_modified_ts %>%
+    mutate(value = ifelse(is.na(value),
+    na_locf(value, option = option), value))
+  
+  adjusted_chunked_ts <- chunked_modified_ts %>%
+    mutate(value = ifelse(is.na(value),
+    na_locf(value, option = option), value))
+  
+  dataset <- list(arima_ts_train, adjusted_ts, adjusted_seas_ts, adjusted_chunked_ts)
+  forecast_results <- arima_forecast_framework(dataset,order,ar_param,ma_param,h=20,
+                                               arima_ts_test)
+  
+  df <- tibble()
+  labels <- c("Unchanged Arima", "Randomly dropped", "Seasonally dropped", "Dropped in Chunks")
+  count <- 1
+  for (i in 1:length(forecast_results)){
+    if (nrow(df) == 0){
+      df <- as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))
+      df <- cbind(Type = labels[count],df)
+      count <- count + 1
+    }
+    else {
+      df <- rbind(df,cbind(Type = labels[count],as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))))
+      count <- count+1
+    }
+  }
+  
+  df
+}
+```
+
+```{r}
+locf_results <- df_generator_helper("locf")
+nocb_results <- df_generator_helper("nocb")
+```
 
