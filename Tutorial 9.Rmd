@@ -286,6 +286,7 @@ df_generator_helper <- function(impute_function,seed){
   ma_param <- 0.7
   sd_noise <- 1
   order <- c(1,1,1)
+  set.seed(1)
   arima_ts <- generate_arima_tsibble(n,order,ar_param,ma_param,sd_noise)
   arima_ts_test <- arima_ts[81:100,]
   arima_ts_train <- arima_ts[1:80,]
