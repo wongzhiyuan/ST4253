@@ -126,18 +126,32 @@ arima_forecast_framework <- function(datasets, order, ar, ma, h, true_test_data)
 ```
 
 ```{r interpolation}
-interpolation <- function(ts_data, method = c("linear", "cubic")) {
+
+# Decommissioned
+linear_interpolation <- function(ts_data) {
   # Convert tsibble to zoo object
   zoo_data <- zoo(ts_data$value, order.by = ts_data$index)
   
-  # Perform interpolation based on the specified method
-  if (method == "linear") {
-    interpolated_values <- na.approx(zoo_data)
-  } else if (method == "cubic") {
-    interpolated_values <- na.spline(zoo_data)
-  } else {
-    stop("Invalid interpolation method. Supported methods: 'linear', 'cubic'")
-  }
+  # Perform interpolation based on the linear method
+  interpolated_values <- na.approx(zoo_data)
+
+
+  # Extract values and index from zoo object
+  interpolated_data <- data.frame(interpolated_values)
+
+  # Convert back to tsibble manually
+  tsibble_data_filled <- as_tsibble(index = 1:length(interpolated_data), interpolated_data)
+
+  return(tsibble_data_filled)
+}
+
+cubic_interpolation <- function(ts_data) {
+  # Convert tsibble to zoo object
+  zoo_data <- zoo(ts_data$value, order.by = ts_data$index)
+  
+  # Perform interpolation based on the cubic method
+  interpolated_values <- na.spline(zoo_data)
+
 
   # Extract values and index from zoo object
   interpolated_data <- data.frame(interpolated_values)
@@ -237,11 +251,11 @@ forecast_horizon <- 10  # Forecast horizon
 datasets <- list(arima_ts, modified_ts)  # List of original and modified datasets
 
 # Apply the forecasting framework
-#forecast_results <- arima_forecast_framework(datasets, order, ar_param, ma_param, forecast_horizon)
+##forecast_results <- arima_forecast_framework(datasets, order, ar_param, ma_param, forecast_horizon)
 
 # Display the results
-#print(forecast_results)
-#calculate_mse_fc(forecast_results)
+##print(forecast_results)
+##calculate_mse_fc(forecast_results)
 ```
 
 
@@ -255,6 +269,16 @@ impute_locf <- function(ts){
 impute_nocb <- function(ts){
   ts %>% mutate(value = ifelse(is.na(value),
     na_locf(value, option = "nocb"), value))
+}
+
+impute_linear <- function(ts){
+  ts %>% mutate(value = ifelse(is.na(value),
+    na_interpolation(value, option = "linear"), value))
+}
+
+impute_spline <- function(ts){
+  ts %>% mutate(value = ifelse(is.na(value),
+    na_interpolation(value, option = "spline"), value))
 }
 df_generator_helper <- function(impute_function){
   n <- 100
@@ -297,11 +321,31 @@ df_generator_helper <- function(impute_function){
   
   df
 }
+
+repeater <- function(num , impute){
+  result = list()
+  for (i in 1:num){
+    res <- df_generator_helper(impute)
+    result[[i]] <- res
+  }
+  return(result)
+}
+```
+
+```{r linear imputation}
+linear_imputation_results <- repeater(10, impute_linear)
+print(linear_imputation_results)
+```
+
+```{r cubic interpolation}
+cubic_imputation_results <- repeater(10, impute_spline)
+print(cubic_imputation_results)
 ```
 
 ```{r}
 locf_results <- df_generator_helper(impute_locf)
 nocb_results <- df_generator_helper(impute_nocb)
+linear_results <- df_generator_helper(impute_linear)
 ```
 ```{r}
 ma_results<-df_generator_helper(na_ma)
