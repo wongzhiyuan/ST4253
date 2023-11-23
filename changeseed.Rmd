@@ -285,7 +285,6 @@ df_impute_all <- function(impute_function_list){
     
     labels <- c("Unchanged Arima", "Randomly dropped", "Seasonally dropped", "Dropped in Chunks")
     count <- 1
-    print(name)
     for (i in 1:length(forecast_results)){
       if (nrow(df) == 0){
         df <- as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))
@@ -399,8 +398,28 @@ kalman_results<-df_generator_helper(na_kalman)
 ```
 ```{r}
 all_methods <-list(list('impute_locf',impute_locf),list('impute_nocb',impute_nocb),list('impute_linear',impute_linear))
-
 df_impute_all(all_methods)
+```
+```{r}
+forecast_generate <-function(all_methods,tries){
+  main<-data.frame()
+  for (i in 1:tries){
+    main<-rbind(main,df_impute_all(all_methods))
+  }
+  main
+}
+```
+
+```{r}
+all_forecast_data<-forecast_generate(all_methods,20)
+```
+
+```{r}
+ggplot(all_forecast_data, aes(x = Type, y = RMSE)) +
+  geom_boxplot() +
+  facet_wrap(~Impute)
+  geom_point(aes(color = Type), width = 0.2, alpha = 0.7) +
+  labs(title = "Box Plot of ME by Type", x = "Type", y = "ME")
 ```
 
 

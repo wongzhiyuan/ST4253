@@ -7,7 +7,6 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-set.seed(1)
 ```
 
 ```{r}
@@ -32,8 +31,10 @@ generate_arima_tsibble <- function(n, order, ar, ma, sd_noise) {
     model_list <- list(order = order, sd = sd_noise)
     if (order[1] > 0) model_list$ar <- ar  # Include AR parameters if p > 0
     if (order[3] > 0) model_list$ma <- ma  # Include MA parameters if q > 0
+
     # Generate the ARIMA time series
     arima_series <- arima.sim(n = n, model = model_list)
+    
     # Create a tsibble from the generated time series
     arima_tsibble <- as_tsibble(ts(arima_series))
     
@@ -42,16 +43,18 @@ generate_arima_tsibble <- function(n, order, ar, ma, sd_noise) {
 ```
 
 ```{r}
-drop_observations <- function(ts_data, fraction, mode = "random", period = NULL) {
+drop_observations <- function(ts_data, fraction, mode = "random", period = NULL,seed=1) {
     # ts_data: A tsibble with the time series data
     # fraction: Fraction of the observations to drop
     # mode: The mode of dropping observations - "random", "seasonal", or "chunked"
     
     # Calculate the number of observations to drop
     num_to_drop <- round(fraction * nrow(ts_data))
+    set.seed(seed)
     # Drop observations based on the specified mode
     if (mode == "random") {
         # Randomly select indices to drop
+        #set.seed(123) # For reproducibility
         drop_indices <- sample(nrow(ts_data), num_to_drop)
         ts_data[drop_indices, "value"] <- NA
     } else if (mode == "seasonal") {
@@ -94,7 +97,7 @@ estimate_arima_params <- function(ts_data) {
 }
 
 compute_forecast_horizon <- function(ts_data, order, ar, ma, h) {
-  model <- Arima(ts_data$value, order = order,method='ML' )
+  model <- Arima(ts_data$value, order = order, )
   forecast_horizon <- forecast(model, h = h)
   return(forecast_horizon)
 }
@@ -254,55 +257,6 @@ datasets <- list(arima_ts, modified_ts)  # List of original and modified dataset
 ##print(forecast_results)
 ##calculate_mse_fc(forecast_results)
 ```
-```{r}
-df_impute_all <- function(impute_function_list){
-  n <- 100
-  ar_param <- 0.5
-  ma_param <- 0.7
-  sd_noise <- 1
-  order <- c(1,1,1)
-  arima_ts <- generate_arima_tsibble(n,order,ar_param,ma_param,sd_noise)
-  arima_ts_test <- arima_ts[81:100,]
-  arima_ts_train <- arima_ts[1:80,]
-  fraction_missing <- 0.1  # Fraction of data to be dropped
-  df <- tibble()
-  for ( pair in impute_function_list){
-    name <- pair[[1]]
-    impute_function <- pair[[2]]
-    modified_ts <- drop_observations(arima_ts_train, fraction_missing)
-    seasonally_modified_ts<-drop_observations(arima_ts_train,
-                                              fraction_missing/12,'seasonal',4)
-    chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
-    adjusted_ts <- impute_function(modified_ts)
-    
-    adjusted_seas_ts <- impute_function(seasonally_modified_ts)
-    
-    adjusted_chunked_ts <- impute_function(chunked_modified_ts)
-    
-    dataset <- list(arima_ts_train, adjusted_ts, adjusted_seas_ts, adjusted_chunked_ts)
-    forecast_results <- arima_forecast_framework(dataset,order,ar_param,ma_param,h=20,
-                                                 arima_ts_test)
-    
-    labels <- c("Unchanged Arima", "Randomly dropped", "Seasonally dropped", "Dropped in Chunks")
-    count <- 1
-    print(name)
-    for (i in 1:length(forecast_results)){
-      if (nrow(df) == 0){
-        df <- as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))
-        df <- cbind(Type = labels[count],df)
-        df <- cbind(Impute = name,df)
-        count <- count + 1
-      }
-      else {
-        df <- rbind(df,cbind(Type = labels[count],Impute =name,as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))))
-        count <- count+1
-      }
-    }
-    
-  }
-  df
-}
-```
 
 
 
@@ -326,20 +280,21 @@ impute_spline <- function(ts){
   ts %>% mutate(value = ifelse(is.na(value),
     na_interpolation(value, option = "spline"), value))
 }
-df_generator_helper <- function(impute_function){
+df_generator_helper <- function(impute_function,seed){
   n <- 100
   ar_param <- 0.5
   ma_param <- 0.7
   sd_noise <- 1
   order <- c(1,1,1)
+  set.seed(1)
   arima_ts <- generate_arima_tsibble(n,order,ar_param,ma_param,sd_noise)
   arima_ts_test <- arima_ts[81:100,]
   arima_ts_train <- arima_ts[1:80,]
   fraction_missing <- 0.1  # Fraction of data to be dropped
-  modified_ts <- drop_observations(arima_ts_train, fraction_missing)
+  modified_ts <- drop_observations(arima_ts_train, fraction_missing,seed=seed)
   seasonally_modified_ts<-drop_observations(arima_ts_train,
-                                            fraction_missing/12,'seasonal',4)
-  chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
+                                            fraction_missing/12,'seasonal',4,seed=seed)
+  chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked',seed=seed)
   adjusted_ts <- impute_function(modified_ts)
   
   adjusted_seas_ts <- impute_function(seasonally_modified_ts)
@@ -371,7 +326,7 @@ df_generator_helper <- function(impute_function){
 repeater <- function(num , impute){
   result = list()
   for (i in 1:num){
-    res <- df_generator_helper(impute)
+    res <- df_generator_helper(impute,i)
     result[[i]] <- res
   }
   return(result)
@@ -389,19 +344,31 @@ print(cubic_imputation_results)
 ```
 
 ```{r}
-locf_results <- df_generator_helper(impute_locf)
-nocb_results <- df_generator_helper(impute_nocb)
-linear_results <- df_generator_helper(impute_linear)
+locf_results <- df_generator_helper(impute_locf,1)
+nocb_results <- df_generator_helper(impute_nocb,1)
+linear_results <- df_generator_helper(impute_linear,1)
 ```
 ```{r}
-ma_results<-df_generator_helper(na_ma)
-kalman_results<-df_generator_helper(na_kalman)
+ma_results<-df_generator_helper(na_ma,1)
+kalman_results<-df_generator_helper(na_kalman,1)
 ```
+
 ```{r}
-all_methods <-list(list('impute_locf',impute_locf),list('impute_nocb',impute_nocb),list('impute_linear',impute_linear))
-
-df_impute_all(all_methods)
+forecast_generate <-function(impute_function,tries){
+  main<-data.frame()
+  for (i in 1:tries){
+    main<-rbind(main,df_generator_helper(impute_function,i))
+  }
+  main
+}
+na_ma_forecast_data<-forecast_generate(na_ma,20)
 ```
 
+```{r}
+ggplot(na_ma_forecast_data, aes(x = Type, y = RMSE)) +
+  geom_boxplot() +
+  geom_point(aes(color = Type), width = 0.2, alpha = 0.7) +
+  labs(title = "Box Plot of ME by Type", x = "Type", y = "ME")
+```
 
 
