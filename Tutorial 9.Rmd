@@ -220,14 +220,6 @@ nocb_chunked_ts <- chunked_modified_ts %>%
   mutate(value = ifelse(is.na(value),
   na_locf(value, option = "nocb"), value))
 
-
-# After splitting time series into seasons, perform imputation using MA, LOCF, NOCB
-na_seasplit(modified_ts,algorithm ='ma')
-#na_seasplit(modified_ts,algorithm = "locf")
-
-# After removing seasonal component, perform imputation using MA
-na_seadec(modified_ts,algorithm ='ma')
-#na_seadec(modified_ts,algorithm = "locf")
 ```
 
 ```{r}
@@ -245,48 +237,14 @@ forecast_horizon <- 10  # Forecast horizon
 datasets <- list(arima_ts, modified_ts)  # List of original and modified datasets
 
 # Apply the forecasting framework
-forecast_results <- arima_forecast_framework(datasets, order, ar_param, ma_param, forecast_horizon)
+#forecast_results <- arima_forecast_framework(datasets, order, ar_param, ma_param, forecast_horizon)
 
 # Display the results
-print(forecast_results)
+#print(forecast_results)
+#calculate_mse_fc(forecast_results)
 ```
 
-```{r}
-calculate_mse_fc(forecast_results)
-```
 
-```{r}
-generate_multiple<- function(impute_func){
-  n <- 100  # Number of observations
-  order <- c(1, 1, 1)  # ARIMA order (p, d, q)
-  ar_param <- 0.5  # AR parameter
-  ma_param <- 0.7  # MA parameter
-  sd_noise <- 1  # Standard deviation of noise
-  reps<-5
-  for (i in (1:reps)){
-    arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
-    arima_ts_test <- arima_ts[81:100,]
-    arima_ts_train <- arima_ts[1:80,]
-    fraction_missing <- 0.1  # Fraction of data to be dropped
-    modified_ts <- drop_observations(arima_ts_train, fraction_missing)
-    seasonally_modified_ts<-drop_observations(arima_ts_train, fraction_missing/12,'seasonal',4)
-    chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
-    ma_chunked_ts <- na_ma(chunked_modified_ts)
-    estimated_params <- estimate_arima_params(modified_ts$value)
-    modified_ts<-impute_func(modified_ts)
-    datasets[i] <- list(arima_ts, modified_ts) 
-  }
-  return(datasets)
-}
-```
-```{r}
-datasets<-generate_multiple(na_ma)
-forecast_results <- arima_forecast_framework(datasets, order, ar_param, ma_param, forecast_horizon)
-
-# Display the results
-print(forecast_results)
-calculate_mse_fc(forecast_results)
-```
 
 ```{r}
 impute_locf <- function(ts){
@@ -345,4 +303,27 @@ df_generator_helper <- function(impute_function){
 locf_results <- df_generator_helper(impute_locf)
 nocb_results <- df_generator_helper(impute_nocb)
 ```
+```{r}
+ma_results<-df_generator_helper(na_ma)
+kalman_results<-df_generator_helper(na_kalman)
+```
+
+```{r}
+forecast_generate <-function(impute_function,tries){
+  main<-data.frame()
+  for (i in 1:tries){
+    main<-rbind(main,df_generator_helper(impute_function))
+  }
+  main
+}
+na_ma_forecast_data<-forecast_generate(na_ma,20)
+```
+
+```{r}
+ggplot(na_ma_forecast_data, aes(x = Type, y = RMSE)) +
+  geom_boxplot() +
+  geom_point(aes(color = Type), width = 0.2, alpha = 0.7) +
+  labs(title = "Box Plot of ME by Type", x = "Type", y = "ME")
+```
+
 
