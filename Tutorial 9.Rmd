@@ -43,18 +43,18 @@ generate_arima_tsibble <- function(n, order, ar, ma, sd_noise) {
 ```
 
 ```{r}
-drop_observations <- function(ts_data, fraction, mode = "random", period = NULL) {
+drop_observations <- function(ts_data, fraction, mode = "random", period = NULL,seed=1) {
     # ts_data: A tsibble with the time series data
     # fraction: Fraction of the observations to drop
     # mode: The mode of dropping observations - "random", "seasonal", or "chunked"
     
     # Calculate the number of observations to drop
     num_to_drop <- round(fraction * nrow(ts_data))
-    
+    set.seed(seed)
     # Drop observations based on the specified mode
     if (mode == "random") {
         # Randomly select indices to drop
-        set.seed(123) # For reproducibility
+        #set.seed(123) # For reproducibility
         drop_indices <- sample(nrow(ts_data), num_to_drop)
         ts_data[drop_indices, "value"] <- NA
     } else if (mode == "seasonal") {
@@ -280,7 +280,7 @@ impute_spline <- function(ts){
   ts %>% mutate(value = ifelse(is.na(value),
     na_interpolation(value, option = "spline"), value))
 }
-df_generator_helper <- function(impute_function){
+df_generator_helper <- function(impute_function,seed){
   n <- 100
   ar_param <- 0.5
   ma_param <- 0.7
@@ -290,10 +290,10 @@ df_generator_helper <- function(impute_function){
   arima_ts_test <- arima_ts[81:100,]
   arima_ts_train <- arima_ts[1:80,]
   fraction_missing <- 0.1  # Fraction of data to be dropped
-  modified_ts <- drop_observations(arima_ts_train, fraction_missing)
+  modified_ts <- drop_observations(arima_ts_train, fraction_missing,seed=seed)
   seasonally_modified_ts<-drop_observations(arima_ts_train,
-                                            fraction_missing/12,'seasonal',4)
-  chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
+                                            fraction_missing/12,'seasonal',4,seed=seed)
+  chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked',seed=seed)
   adjusted_ts <- impute_function(modified_ts)
   
   adjusted_seas_ts <- impute_function(seasonally_modified_ts)
@@ -325,7 +325,7 @@ df_generator_helper <- function(impute_function){
 repeater <- function(num , impute){
   result = list()
   for (i in 1:num){
-    res <- df_generator_helper(impute)
+    res <- df_generator_helper(impute,i)
     result[[i]] <- res
   }
   return(result)
@@ -343,20 +343,20 @@ print(cubic_imputation_results)
 ```
 
 ```{r}
-locf_results <- df_generator_helper(impute_locf)
-nocb_results <- df_generator_helper(impute_nocb)
-linear_results <- df_generator_helper(impute_linear)
+locf_results <- df_generator_helper(impute_locf,1)
+nocb_results <- df_generator_helper(impute_nocb,1)
+linear_results <- df_generator_helper(impute_linear,1)
 ```
 ```{r}
-ma_results<-df_generator_helper(na_ma)
-kalman_results<-df_generator_helper(na_kalman)
+ma_results<-df_generator_helper(na_ma,1)
+kalman_results<-df_generator_helper(na_kalman,1)
 ```
 
 ```{r}
 forecast_generate <-function(impute_function,tries){
   main<-data.frame()
   for (i in 1:tries){
-    main<-rbind(main,df_generator_helper(impute_function))
+    main<-rbind(main,df_generator_helper(impute_function,i))
   }
   main
 }
