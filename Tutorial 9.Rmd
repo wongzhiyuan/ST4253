@@ -7,8 +7,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-set.seed(1)
 ```
+
+# Load Libraries
 
 ```{r}
 # Load necessary libraries
@@ -20,7 +21,12 @@ library(forecast)
 library(tsibble)
 ```
 
+# Helper Functions
+
+## Generate ARIMA Series
+
 ```{r - Utility fxns} 
+set.seed(1231)
 generate_arima_tsibble <- function(n, order, ar, ma, sd_noise) {
     # n: number of observations
     # order: order of the ARIMA model (p, d, q)
@@ -32,8 +38,10 @@ generate_arima_tsibble <- function(n, order, ar, ma, sd_noise) {
     model_list <- list(order = order, sd = sd_noise)
     if (order[1] > 0) model_list$ar <- ar  # Include AR parameters if p > 0
     if (order[3] > 0) model_list$ma <- ma  # Include MA parameters if q > 0
+
     # Generate the ARIMA time series
     arima_series <- arima.sim(n = n, model = model_list)
+    
     # Create a tsibble from the generated time series
     arima_tsibble <- as_tsibble(ts(arima_series))
     
@@ -41,27 +49,26 @@ generate_arima_tsibble <- function(n, order, ar, ma, sd_noise) {
 }
 ```
 
+## Function to drop observations
+
+We drop the observations in 3 ways - 
+
+ 1. Random Dropping
+ 2. Chunked Dropping
+ 3. Thresholded Dropping
+
 ```{r}
-drop_observations <- function(ts_data, fraction, mode = "random", period = NULL) {
+drop_observations <- function(ts_data, fraction, mode = "random") {
     # ts_data: A tsibble with the time series data
     # fraction: Fraction of the observations to drop
-    # mode: The mode of dropping observations - "random", "seasonal", or "chunked"
-    
+    # mode: The mode of dropping observations - "random", "chunked", or "thresholded"
+
     # Calculate the number of observations to drop
     num_to_drop <- round(fraction * nrow(ts_data))
-    # Drop observations based on the specified mode
+
     if (mode == "random") {
         # Randomly select indices to drop
         drop_indices <- sample(nrow(ts_data), num_to_drop)
-        ts_data[drop_indices, "value"] <- NA
-    } else if (mode == "seasonal") {
-        if (is.null(period)) {
-            stop("For seasonal dropping, 'period' must be specified.")
-        }
-        # Compute indices based on seasonality
-        seasons <- rep(1:period, length.out = nrow(ts_data))
-        selected_seasons <- sample(1:period, num_to_drop, replace = TRUE)
-        drop_indices <- which(seasons %in% selected_seasons)
         ts_data[drop_indices, "value"] <- NA
     } else if (mode == "chunked") {
         # Compute indices to drop in chunks
@@ -74,31 +81,49 @@ drop_observations <- function(ts_data, fraction, mode = "random", period = NULL)
             num_to_drop <- num_to_drop - (end - start + 1)
             if (num_to_drop <= 0) break
         }
+    } else if (mode == "thresholded") {
+        # Calculate thresholds for dropping top and bottom fractions
+        lower_threshold <- quantile(ts_data[["value"]], fraction , na.rm = TRUE)
+        upper_threshold <- quantile(ts_data[["value"]], 1 - fraction , na.rm = TRUE)
+
+        # Identify indices where values fall outside the threshold range
+        drop_indices <- which(ts_data[["value"]] < lower_threshold | ts_data[["value"]] > upper_threshold)
+        selected_indices <- sample(drop_indices, min(num_to_drop, length(drop_indices)))
+        ts_data[selected_indices, "value"] <- NA
     } else {
-        stop("Unknown mode specified. Use 'random', 'seasonal', or 'chunked'.")
+        stop("Unknown mode specified. Use 'random', 'chunked', or 'thresholded'.")
     }
     
     return(ts_data)
 }
+
 ```
+
+## Estimate Parameters for a given time series dataset
 
 ```{r}
 estimate_arima_params <- function(ts_data) {
-  auto_fit <- auto.arima(ts_data)
+  auto_fit <- auto.arima(ts_data, method="ML")
   
   # Extract AR and MA parameters
   ar_params <- auto_fit$coef[paste0("ar", seq(auto_fit$arma[1]))]
   ma_params <- auto_fit$coef[paste0("ma", seq(auto_fit$arma[2]))]
-
-  return(list(order = auto_fit$arma[1:3], ar = ar_params, ma = ma_params))
+  
+  return(list(order = arimaorder(auto_fit), ar = ar_params, ma = ma_params))
 }
 
 compute_forecast_horizon <- function(ts_data, order, ar, ma, h) {
-  model <- Arima(ts_data$value, order = order,method='ML' )
+  model <- Arima(ts_data$value, order = order, method="CSS")
   forecast_horizon <- forecast(model, h = h)
   return(forecast_horizon)
 }
+```
 
+## Forecast framework function
+
+This function calculates the parameters of an ARIMA given a list of datasets. It then returns the results, containing the forecast based on the estimated parameters, the true values, and the estimated parameters. 
+
+```{r}
 arima_forecast_framework <- function(datasets, order, ar, ma, h, true_test_data) {
   results <- list()
   
@@ -122,285 +147,207 @@ arima_forecast_framework <- function(datasets, order, ar, ma, h, true_test_data)
 }
 ```
 
-```{r interpolation}
+## Imputation Functions
 
-# Decommissioned
-linear_interpolation <- function(ts_data) {
-  # Convert tsibble to zoo object
-  zoo_data <- zoo(ts_data$value, order.by = ts_data$index)
-  
-  # Perform interpolation based on the linear method
-  interpolated_values <- na.approx(zoo_data)
+We define helper functions for the imputation here:
 
-
-  # Extract values and index from zoo object
-  interpolated_data <- data.frame(interpolated_values)
-
-  # Convert back to tsibble manually
-  tsibble_data_filled <- as_tsibble(index = 1:length(interpolated_data), interpolated_data)
-
-  return(tsibble_data_filled)
-}
-
-cubic_interpolation <- function(ts_data) {
-  # Convert tsibble to zoo object
-  zoo_data <- zoo(ts_data$value, order.by = ts_data$index)
-  
-  # Perform interpolation based on the cubic method
-  interpolated_values <- na.spline(zoo_data)
-
-
-  # Extract values and index from zoo object
-  interpolated_data <- data.frame(interpolated_values)
-
-  # Convert back to tsibble manually
-  tsibble_data_filled <- as_tsibble(index = 1:length(interpolated_data), interpolated_data)
-
-  return(tsibble_data_filled)
-}
-```
-
-```{r}
-calculate_mse_fc <- function(forecast_results) {
-    mse_vector <- numeric(length(forecast_results))
-    
-    for (i in seq_along(forecast_results)) {
-        estimated_forecast <- forecast_results[[i]]$forecast_estimated_params$mean
-        true_forecast <- forecast_results[[i]]$forecast_true_params
-        mse_vector[i] <- mean((estimated_forecast - true_forecast)^2)
-    }
-    
-    return(mse_vector)
-}
-```
-
-```{r}
-# TS Params
-n <- 100  # Number of observations
-order <- c(1, 1, 1)  # ARIMA order (p, d, q)
-ar_param <- 0.5  # AR parameter
-ma_param <- 0.7  # MA parameter
-sd_noise <- 1  # Standard deviation of noise
-```
-
-```{r}
-# 1. Generate an ARIMA Time Series
-arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
-```
-
-```{r}
-# 2. Introduce Missing Observations
-fraction_missing <- 0.1  # Fraction of data to be dropped
-modified_ts <- drop_observations(arima_ts, fraction_missing)
-seasonally_modified_ts<-drop_observations(arima_ts, fraction_missing/12,'seasonal',4)
-chunked_modified_ts<-drop_observations(arima_ts, fraction_missing,'chunked')
-```
-
-```{r}
-# 3. Impute Missing Data
-# Imputing by weighted moving average, LOCF, NOCB
-ma_ts<- na_ma(modified_ts)
-
-locf_ts <- modified_ts %>%
-  mutate(value = ifelse(is.na(value),
-  na_locf(value), value))
-
-nocb_ts <- modified_ts %>%
-  mutate(value = ifelse(is.na(value),
-  na_locf(value, option = "nocb"), value))
-
-# Impute seasonally modified ts with weighted moving average, LOCF, NOCB
-ma_seas_ts <- na_ma(seasonally_modified_ts)
-
-locf_seas_ts <- seasonally_modified_ts %>%
-  mutate(value = ifelse(is.na(value),
-  na_locf(value), value))
-
-nocb_seas_ts <- seasonally_modified_ts %>%
-  mutate(value = ifelse(is.na(value),
-  na_locf(value, option = "nocb"), value))
-
-# Impute chunked modified ts with WMA, LOCF, NOCB
-ma_chunked_ts <- na_ma(chunked_modified_ts)
-
-locf_chunked_ts <- chunked_modified_ts %>%
-  mutate(value = ifelse(is.na(value),
-  na_locf(value), value))
-
-nocb_chunked_ts <- chunked_modified_ts %>%
-  mutate(value = ifelse(is.na(value),
-  na_locf(value, option = "nocb"), value))
-
-```
-
-```{r}
-# 3. Impute Missing Data
-mean_value <- mean(modified_ts$value, na.rm = TRUE)
-modified_ts$value[is.na(modified_ts$value)] <- mean_value
-```
-
-```{r}
-# 4. Estimate ARIMA Parameters on the Modified Data
-estimated_params <- estimate_arima_params(modified_ts$value)
-
-# 5. Forecasting
-forecast_horizon <- 10  # Forecast horizon
-datasets <- list(arima_ts, modified_ts)  # List of original and modified datasets
-
-# Apply the forecasting framework
-##forecast_results <- arima_forecast_framework(datasets, order, ar_param, ma_param, forecast_horizon)
-
-# Display the results
-##print(forecast_results)
-##calculate_mse_fc(forecast_results)
-```
-```{r}
-df_impute_all <- function(impute_function_list){
-  n <- 100
-  ar_param <- 0.5
-  ma_param <- 0.7
-  sd_noise <- 1
-  order <- c(1,1,1)
-  arima_ts <- generate_arima_tsibble(n,order,ar_param,ma_param,sd_noise)
-  arima_ts_test <- arima_ts[81:100,]
-  arima_ts_train <- arima_ts[1:80,]
-  fraction_missing <- 0.1  # Fraction of data to be dropped
-  df <- tibble()
-  for ( pair in impute_function_list){
-    name <- pair[[1]]
-    impute_function <- pair[[2]]
-    modified_ts <- drop_observations(arima_ts_train, fraction_missing)
-    seasonally_modified_ts<-drop_observations(arima_ts_train,
-                                              fraction_missing/12,'seasonal',4)
-    chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
-    adjusted_ts <- impute_function(modified_ts)
-    
-    adjusted_seas_ts <- impute_function(seasonally_modified_ts)
-    
-    adjusted_chunked_ts <- impute_function(chunked_modified_ts)
-    
-    dataset <- list(arima_ts_train, adjusted_ts, adjusted_seas_ts, adjusted_chunked_ts)
-    forecast_results <- arima_forecast_framework(dataset,order,ar_param,ma_param,h=20,
-                                                 arima_ts_test)
-    
-    labels <- c("Unchanged Arima", "Randomly dropped", "Seasonally dropped", "Dropped in Chunks")
-    count <- 1
-    print(name)
-    for (i in 1:length(forecast_results)){
-      if (nrow(df) == 0){
-        df <- as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))
-        df <- cbind(Type = labels[count],df)
-        df <- cbind(Impute = name,df)
-        count <- count + 1
-      }
-      else {
-        df <- rbind(df,cbind(Type = labels[count],Impute =name,as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))))
-        count <- count+1
-      }
-    }
-    
-  }
-  df
-}
-```
-
-
+ 1. **Last Observation Carried Forward (LOCF)**: `impute_locf` function fills missing values with the last observed value prior to the gap.
+ 2. **Next Observation Carried Backward (NOCB)**: `impute_nocb` function imputes missing values with the next observation in the time series.
+ 3. **Moving Average**: `impute_ma` function replaces missing values with the moving average.
+ 4. **ARIMA**: `impute_arima` function employs the Kalman filter on an automatically fitted ARIMA model to impute missing data.
+ 5. **Linear Interpolation**: `impute_linear` function applies linear interpolation to fill in the gaps.
+ 6. **Spline Interpolation**: `impute_spline` function uses spline interpolation for imputing missing values, providing a smoother curve compared to linear interpolation.
 
 ```{r}
 impute_locf <- function(ts){
-  ts %>% mutate(value = ifelse(is.na(value),
-    na_locf(value, option = "locf"), value))
+  ts %>% mutate(value = na_locf(value, option = "locf"))
 }
 
 impute_nocb <- function(ts){
-  ts %>% mutate(value = ifelse(is.na(value),
-    na_locf(value, option = "nocb"), value))
+  ts %>% mutate(value = na_locf(value, option = "nocb"))
+}
+
+impute_ma <- function(ts){
+  ts %>% mutate(value = na_ma(value))
+}
+
+impute_arima <- function(ts){
+  ts %>% mutate(value = na_kalman(value, model = 'auto.arima'))
 }
 
 impute_linear <- function(ts){
-  ts %>% mutate(value = ifelse(is.na(value),
-    na_interpolation(value, option = "linear"), value))
+  ts %>% mutate(value = na_interpolation(value, option = "linear"))
 }
 
 impute_spline <- function(ts){
-  ts %>% mutate(value = ifelse(is.na(value),
-    na_interpolation(value, option = "spline"), value))
+  ts %>% mutate(value = na_interpolation(value, option = "spline"))
 }
-df_generator_helper <- function(impute_function){
-  n <- 100
-  ar_param <- 0.5
-  ma_param <- 0.7
-  sd_noise <- 1
-  order <- c(1,1,1)
-  arima_ts <- generate_arima_tsibble(n,order,ar_param,ma_param,sd_noise)
-  arima_ts_test <- arima_ts[81:100,]
-  arima_ts_train <- arima_ts[1:80,]
-  fraction_missing <- 0.1  # Fraction of data to be dropped
+```
+
+## Principal Helper Function
+
+This function completes 1 round of tests for a single instance of a dataset and an imputation function. It then fits the datasets, computes the forecasts, and stores the forecasts and the estimated parameters of the ARIMA. 
+
+```{r}
+df_generator_helper <- function(impute_function, n, order, ar_param, ma_param, sd_noise, trial_number, fraction_missing = 0.2){
+
+  arima_ts <- generate_arima_tsibble(n, order, ar_param, ma_param, sd_noise)
+  arima_ts_train <- arima_ts[2:401,]
+  arima_ts_test <- arima_ts[401:n,]
+
   modified_ts <- drop_observations(arima_ts_train, fraction_missing)
-  seasonally_modified_ts<-drop_observations(arima_ts_train,
-                                            fraction_missing/12,'seasonal',4)
+  thresholded_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'thresholded')
   chunked_modified_ts<-drop_observations(arima_ts_train, fraction_missing,'chunked')
+  
   adjusted_ts <- impute_function(modified_ts)
-  
-  adjusted_seas_ts <- impute_function(seasonally_modified_ts)
-  
+  adjusted_thresholded_ts <- impute_function(thresholded_modified_ts)
   adjusted_chunked_ts <- impute_function(chunked_modified_ts)
   
-  dataset <- list(arima_ts_train, adjusted_ts, adjusted_seas_ts, adjusted_chunked_ts)
-  forecast_results <- arima_forecast_framework(dataset,order,ar_param,ma_param,h=20,
+  dataset <- list(arima_ts_train, adjusted_ts, adjusted_thresholded_ts, adjusted_chunked_ts)
+  forecast_results <- arima_forecast_framework(dataset,order,ar_param,ma_param,h=100,
                                                arima_ts_test)
   
   df <- tibble()
-  labels <- c("Unchanged Arima", "Randomly dropped", "Seasonally dropped", "Dropped in Chunks")
+  labels <- c("Unchanged", "Random", "Threshold", "Chunks")
   count <- 1
   for (i in 1:length(forecast_results)){
+    forecast_accuracy <- as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = ))
+    estimated_params <- forecast_results[[i]]$estimated_params  # Extract estimated_params
+    
+    # Combine accuracy data and estimated_params
+    combined_data <- cbind(Type = labels[count], forecast_accuracy, Estimated_Order = I(list(estimated_params$order)), Estimated_AR = I(list(estimated_params$ar)), Estimated_MA = I(list(estimated_params$ma)), Trial_Number = trial_number)
+
+    # Add to df
     if (nrow(df) == 0){
-      df <- as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))
-      df <- cbind(Type = labels[count],df)
-      count <- count + 1
+      df <- combined_data
+    } else {
+      df <- rbind(df, combined_data)
     }
-    else {
-      df <- rbind(df,cbind(Type = labels[count],as_tibble(accuracy(forecast_results[[i]]$forecast_estimated_params, data = arima_ts))))
-      count <- count+1
-    }
+    count <- count + 1
   }
-  
   df
 }
+```
 
-repeater <- function(num , impute){
-  result = list()
-  for (i in 1:num){
-    res <- df_generator_helper(impute)
-    result[[i]] <- res
+## Main Function
+
+This function generates n runs for each imputation method, and returns the results in a single dataframe
+
+```{r}
+forecast_generate <-function(impute_function,tries){
+  main<-data.frame()
+  for (i in 1:tries){
+    main<-rbind(main,df_generator_helper(impute_function,n, order, ar_param, ma_param, sd_noise, trial_number = i))
   }
-  return(result)
+  main
 }
 ```
 
-```{r linear imputation}
-linear_imputation_results <- repeater(10, impute_linear)
-print(linear_imputation_results)
+```{r}
+# Assuming forecast_generate is a function that takes an imputation function and number of steps
+# and returns a tsibble with forecasts
+
+generate_and_label <- function(impute_func, method_name, steps) {
+  forecast_data <- forecast_generate(impute_func, steps)
+  forecast_data <- forecast_data %>% mutate(imputation_method = method_name)
+  return(forecast_data)
+}
 ```
 
-```{r cubic interpolation}
-cubic_imputation_results <- repeater(10, impute_spline)
-print(cubic_imputation_results)
+# Simulation
+
+## ARIMA Parameters
+
+```{r}
+# TS Params
+n <- 500  # Number of observations
+order <- c(1, 2, 1)  # ARIMA order (p, d, q)
+ar_param <- 0.5  # AR parameter
+ma_param <- -0.7  # MA parameter
+sd_noise <- 0.1  # Standard deviation of noise
+```
+
+## Generate forecasts
+
+```{r}
+# Generate forecasts for each imputation method
+na_ma_forecast_data <- generate_and_label(impute_ma, "ma", 50)
+na_locf_forecast_data <- generate_and_label(impute_locf, "locf", 50)
+na_nocb_forecast_data <- generate_and_label(impute_nocb, "nocb", 50)
+na_arima_forecast_data <- generate_and_label(impute_arima, "arima", 50)
+na_linear_forecast_data <- generate_and_label(impute_linear, "linear", 50)
+na_spline_forecast_data <- generate_and_label(impute_spline, "spline", 50)
 ```
 
 ```{r}
-locf_results <- df_generator_helper(impute_locf)
-nocb_results <- df_generator_helper(impute_nocb)
-linear_results <- df_generator_helper(impute_linear)
+# Join all datasets
+all_forecasts <- bind_rows(
+  na_ma_forecast_data,
+  na_locf_forecast_data,
+  na_nocb_forecast_data,
+  na_linear_forecast_data,
+  na_arima_forecast_data,
+  na_spline_forecast_data
+)
 ```
-```{r}
-ma_results<-df_generator_helper(na_ma)
-kalman_results<-df_generator_helper(na_kalman)
-```
-```{r}
-all_methods <-list(list('impute_locf',impute_locf),list('impute_nocb',impute_nocb),list('impute_linear',impute_linear))
 
-df_impute_all(all_methods)
+```{r}
+# Initialize the new column with NA or an appropriate default value
+all_forecasts$estimated_p <- NA 
+all_forecasts$estimated_d <- NA 
+all_forecasts$estimated_q <- NA 
+
+for (i in 1:nrow(all_forecasts)) {
+  all_forecasts$estimated_p[i] <- all_forecasts[i, "Estimated_Order"][[1]][1]
+  all_forecasts$estimated_d[i] <- all_forecasts[i, "Estimated_Order"][[1]][2]
+  all_forecasts$estimated_q[i] <- all_forecasts[i, "Estimated_Order"][[1]][3]
+}
+
+```
+
+```{r}
+# Initialize the new columns with NA or appropriate default values
+all_forecasts$estimated_ar <- NA 
+all_forecasts$estimated_ma <- NA 
+
+for (i in 1:nrow(all_forecasts)) {
+    # Extract the value from the "Estimated_AR" and "Estimated_MA" columns
+    value_ar <- all_forecasts[i, "Estimated_AR"][[1]][1]
+    value_ma <- all_forecasts[i, "Estimated_MA"][[1]][1]
+
+    # Assign them to the new columns for the corresponding row
+    all_forecasts$estimated_ar[i] <- value_ar
+    all_forecasts$estimated_ma[i] <- value_ma
+}
+```
+
+```{r}
+all_forecasts %>%
+  select(Type, RMSE, imputation_method, estimated_p, estimated_d, estimated_q, estimated_ar, estimated_ma) %>%
+  mutate(across(everything(), ~replace_na(., 0))) %>%
+  mutate(param_diff = abs(estimated_p - order[1]) + abs(estimated_d - order[2]) + abs(estimated_q - order[3]) + abs(estimated_ar - ar_param) + abs(estimated_ma - ma_param) ) -> all_forecasts
+```
+# Analysis 
+
+```{r fig.width=12, fig.height=6}
+ggplot(all_forecasts, aes(x = Type, y = param_diff, fill = Type)) +
+  geom_boxplot() +  # or geom_line(), depending on your data and what you're trying to illustrate
+  facet_wrap(~ imputation_method) +
+  labs(title = "Parameter Difference as a Function of Type, Faceted by Imputation Method",
+       x = "Type",
+       y = "Parameter Difference") +
+  theme_bw()
+```
+
+```{r fig.width=12, fig.height=6}
+ggplot(all_forecasts, aes(x = Type, y = RMSE, fill = Type)) +
+  geom_boxplot() +
+  facet_wrap(~imputation_method, scales = "free_y") +
+  labs(title = "Comparison of RMSE by Type and Imputation Method",
+       x = "Type",
+       y = "RMSE") +
+  theme_bw() +
+  theme(legend.position = "none")
 ```
 
 
