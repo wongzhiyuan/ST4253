@@ -327,6 +327,10 @@ all_forecasts %>%
   mutate(across(c(RMSE, estimated_p, estimated_d, estimated_q, estimated_ar, estimated_ma), ~replace_na(., 0))) %>%
   mutate(param_diff = abs(estimated_p - order[1]) + abs(estimated_d - order[2]) + abs(estimated_q - order[3]) + abs(estimated_ar - ar_param) + abs(estimated_ma - ma_param) ) -> all_forecasts
 ```
+```{r}
+all_forecasts %>% filter(Type!='Unchanged') ->all_forecasts
+```
+
 # Analysis 
 
 ```{r fig.width=12, fig.height=6}
@@ -337,6 +341,20 @@ ggplot(all_forecasts, aes(x = Type, y = param_diff, fill = Type)) +
        x = "Type",
        y = "Parameter Difference") +
   theme_bw()
+```
+#Analysis of RMSE
+
+On first glance, we can say (spline,arima,linear) is better than the others. But for intra-group levels, we can have to
+take a look at the next plot where we look at each boxplot with different scales
+```{r}
+ggplot(all_forecasts, aes(x = Type, y = RMSE, fill = Type)) +
+  geom_boxplot() +
+  facet_wrap(~imputation_method) +
+  labs(title = "Comparison of RMSE by Type and Imputation Method",
+       x = "Type",
+       y = "RMSE") +
+  theme_bw() +
+  theme(legend.position = "none") 
 ```
 
 ```{r fig.width=12, fig.height=6}
@@ -349,6 +367,7 @@ ggplot(all_forecasts, aes(x = Type, y = RMSE, fill = Type)) +
   theme_bw() +
   theme(legend.position = "none")
 ```
-
-
+It seems that linear does the best. The linear interpolation helps to denoise the arima simulatation.
+Next, the arima does better than spline for chunks and the same for random and threshold. We believe that for spline, it adds noise when interpolating with a cubic function while the arima uses a linear way of interpolation.
+Ma does better than NOCB and LOCB except for chunked where ma performs the same. Ma takes into account more points and has less variance while imputing. For chunked, MA method is similar to the observation carried. The two Observation carried are similar as they work in the same way. Since our timeseries is stationary, the LOCF and NOCB is the same with reflection. If our timeseries had trend or increasing variance like box-cox , it would be different.
 
