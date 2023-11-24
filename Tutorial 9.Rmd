@@ -333,6 +333,55 @@ all_forecasts %>% filter(Type!='Unchanged') ->all_forecasts
 
 # Analysis 
 
+### LOCF
+
+What we first noticed is that the LOCF has a very small spread in the Parameter differencing graph for chunked data. This implies that the model generated with the LOCF imputation method is relatively constant throughout the repetitions as it shows the same variation from the actual model data. Arima models are stationary models and the data are correlated with time. When we drop in chunks, it is likely that when using LOCF to impute, the imputed value is the mean value of the missing datapoints (approximately "stationary"). Thus the estimated parameters do not vary much.
+
+For random dropping, there is also a very small spread, because each datapoint is supposed to be quite close to one another, using the last observed as the approximation is not such a bad idea.
+
+For thresholding, there is a relatively large spread, because when we remove the higher/lower values, we are essentially removing the spikes in the data. Beats me (?)
+
+## NOCB
+
+For the random dropping, the spread being very small follows a similar reasoning to the LOCF analysis on randomly dropped datapoints in the dataset. 
+
+It is surprising that the chunked data performed with such a large spread compared to LOCF seeing that LOCF and NOCB are relatively similar. It should be noted that the mean parameter difference is approximately equal for LOCF and NOCB, which is to be expected. The reason the spreads look so different could be due to a difference in the RNG factor when dropping the values, resulting in the model choosing a wrong point to start imputation.
+
+Thresholding (?)
+
+## Linear interpolation
+
+It makes sense that for random dropping, the linear interpolation function provides a very small median difference in parameters because generally the data is supposed to be correlated anyway and linearly interpolating them is not a bad idea to use.
+
+Chunked dropping performs differently because for random dropping, we have many short intervals of interpolation, but with chunked, we are assuming that the data changes linearly when we use linear interpolation. This is not usually the case and we are removing variation in the data by doing this. 
+
+Thresholding (?)
+
+## Spline
+
+Spline generally performs worse than linear interpolation in this case because splines (cubic in this case) implies the data has a cubic relationship and this might cause certain data to spike unnaturally large.
+
+## Moving Average
+
+It is not hard to see why using a moving average to impute missing values for chunked data is a bad idea because each missing data point will also have missing datapoints around it and averaging across causes the variance (? or bias) to be quite high, and this is reflected by the high median difference.
+
+Random dropping still performs alright because it is likely that neighbours will still have values and be meaningful in imputation.
+
+Thresholding (?)
+
+## Arima
+
+
+## Unchanged
+
+Unsurprisingly, the unchanged Arima performed the best with the mean parameter difference being the lowest when compared to other methods. The estimation of the parameters is dependent on the data, since it is unchanged, it is apparent that the estimated parameters are close to the originally assigned parameters.
+
+## Across the board
+
+Across the board, it seems that the thresholding results in the largest spreads across all imputation methods. Removing the spikes seems to harm the arima model estimation. (?)
+
+Certain methods are better for different dropping types. For randomly dropped data, using linear imputation seems to be a good choice. If it is dropped in chunks, arima imputation seems to be the best choice.
+
 ```{r fig.width=12, fig.height=6}
 ggplot(all_forecasts, aes(x = Type, y = param_diff, fill = Type)) +
   geom_boxplot() +  # or geom_line(), depending on your data and what you're trying to illustrate
